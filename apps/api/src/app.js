@@ -7,6 +7,15 @@ import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { attendanceRouter } from './modules/attendance/attendance.routes.js';
+import { leavesRouter } from './modules/leaves/leaves.routes.js';
+import { employeesRouter } from './modules/employees/employees.routes.js';
+import { organizationRouter } from './modules/organization/organization.routes.js';
+import { holidaysRouter } from './modules/holidays/holidays.routes.js';
+import { announcementsRouter } from './modules/announcements/announcements.routes.js';
+import { documentsRouter } from './modules/documents/documents.routes.js';
+import { auditRouter } from './modules/audit/audit.routes.js';
 
 /**
  * Builds the Express app. Kept separate from server.js so tests can import it
@@ -20,11 +29,22 @@ export function createApp({ checkDb }) {
   app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
-  // Request logging: method, path, status, time. Bodies/headers are NOT logged (they may hold secrets).
+
+  // Request logging: method, path, status, time. Bodies/headers are NOT logged.
   if (env.NODE_ENV !== 'test') app.use(morgan('tiny'));
 
+  // Core API Routes
   app.use('/api/health', healthRouter({ checkDb }));
   app.use('/api/auth', authRouter());
+  app.use('/api/dashboard', dashboardRouter());
+  app.use('/api/attendance', attendanceRouter());
+  app.use('/api/leaves', leavesRouter());
+  app.use('/api/employees', employeesRouter());
+  app.use('/api/organization', organizationRouter());
+  app.use('/api/holidays', holidaysRouter());
+  app.use('/api/announcements', announcementsRouter());
+  app.use('/api/documents', documentsRouter());
+  app.use('/api/audit', auditRouter());
 
   app.use(notFoundHandler);
   app.use(errorHandler);

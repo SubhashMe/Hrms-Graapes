@@ -14,52 +14,58 @@ import EmployeeFeaturePage from '../features/placeholder/EmployeeFeaturePage.jsx
 import Login from '../pages/Login.jsx';
 import ProfilePage from '../features/profile/ProfilePage.jsx';
 import MyAttendance from '../features/attendance/MyAttendance.jsx';
+import LeaveManagement from '../features/leave/LeaveManagement.jsx';
+import EmployeeDirectory from '../features/employees/EmployeeDirectory.jsx';
+import OrganizationPage from '../features/organization/OrganizationPage.jsx';
+import HolidaysPage from '../features/holidays/HolidaysPage.jsx';
+import AnnouncementsPage from '../features/announcements/AnnouncementsPage.jsx';
+import DocumentsPage from '../features/documents/DocumentsPage.jsx';
+import AuditLogsPage from '../features/audit/AuditLogsPage.jsx';
 
-import { NAV_ITEMS, ROLE_NAV } from '../app/navigation.js';
+import { ROLE_NAV } from '../app/navigation.js';
 import { ShieldCheck } from 'lucide-react';
-
 import { AuthGuard } from '../auth/AuthGuard.jsx';
 import { useAuth } from '../app/AuthContext.jsx';
 
-// Collect navigation items without duplicates.
-// Attendance is excluded because it has its own dedicated route.
-const ALL_NAV_ITEMS = [
+// Dedicated functional pages list to avoid duplicate catch-all routes
+const DEDICATED_PATHS = [
+  '/',
+  '/login',
+  '/attendance',
+  '/leave',
+  '/employees',
+  '/organization',
+  '/holidays',
+  '/announcements',
+  '/documents',
+  '/audit',
+  '/profile',
+  '/status',
+  '/dashboard/super-admin',
+  '/dashboard/hr-admin',
+  '/dashboard/manager',
+  '/dashboard/employee',
+];
+
+const REMAINING_NAV_ITEMS = [
   ...new Map(
     Object.values(ROLE_NAV)
       .flat()
-      .filter(
-        (item) =>
-          !item.built &&
-          item.to !== '/' &&
-          item.to !== '/attendance'
-      )
+      .filter((item) => !DEDICATED_PATHS.includes(item.to))
       .map((item) => [item.to, item])
   ).values(),
 ];
 
 function RoleAwareFeature({ item }) {
   const { user } = useAuth();
-
-  const role = String(user?.role || '')
-    .trim()
-    .toUpperCase()
-    .replace(/[ -]/g, '_');
+  const role = String(user?.role || '').trim().toUpperCase().replace(/[ -]/g, '_');
 
   const isEmployeeSelfService =
-    ['EMPLOYEE', 'INTERN', 'EMPLOYEE_INTERN', 'EMPLOYEE/INTERN'].includes(
-      role
-    ) ||
+    ['EMPLOYEE', 'INTERN', 'EMPLOYEE_INTERN'].includes(role) ||
     role.includes('EMPLOYEE') ||
     role.includes('INTERN');
 
-  const selfServicePaths = [
-    '/attendance',
-    '/leave',
-    '/documents',
-    '/holidays',
-    '/announcements',
-    '/settings',
-  ];
+  const selfServicePaths = ['/settings'];
 
   if (isEmployeeSelfService && selfServicePaths.includes(item.to)) {
     return <EmployeeFeaturePage path={item.to} />;
@@ -72,19 +78,12 @@ export default function AppRoutes() {
   return (
     <Routes>
       {/* Root and login */}
-      <Route
-        path="/"
-        element={<Navigate to="/login" replace />}
-      />
-
-      <Route
-        path="/login"
-        element={<Login />}
-      />
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login" element={<Login />} />
 
       {/* Protected application layout */}
       <Route element={<AppShell />}>
-        {/* Dedicated attendance page */}
+        {/* Core Dedicated Features */}
         <Route
           path="/attendance"
           element={
@@ -94,18 +93,86 @@ export default function AppRoutes() {
           }
         />
 
-        {/* Other navigation features */}
-        {ALL_NAV_ITEMS.map((item) => (
-          <Route
-            key={item.to}
-            path={item.to}
-            element={
-              <AuthGuard>
-                <RoleAwareFeature item={item} />
-              </AuthGuard>
-            }
-          />
-        ))}
+        <Route
+          path="/leave"
+          element={
+            <AuthGuard>
+              <LeaveManagement />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/employees"
+          element={
+            <AuthGuard>
+              <EmployeeDirectory />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/organization"
+          element={
+            <AuthGuard>
+              <OrganizationPage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/holidays"
+          element={
+            <AuthGuard>
+              <HolidaysPage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/announcements"
+          element={
+            <AuthGuard>
+              <AnnouncementsPage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/documents"
+          element={
+            <AuthGuard>
+              <DocumentsPage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/audit"
+          element={
+            <AuthGuard roles={['SUPER_ADMIN', 'HR_ADMIN']}>
+              <AuditLogsPage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <AuthGuard>
+              <ProfilePage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/status"
+          element={
+            <AuthGuard>
+              <StatusPage />
+            </AuthGuard>
+          }
+        />
 
         {/* Super Admin dashboard */}
         <Route
@@ -147,46 +214,31 @@ export default function AppRoutes() {
           }
         />
 
-        {/* System status */}
-        <Route
-          path="/status"
-          element={
-            <AuthGuard>
-              <StatusPage />
-            </AuthGuard>
-          }
-        />
-
-        {/* User profile */}
-        <Route
-          path="/profile"
-          element={
-            <AuthGuard>
-              <ProfilePage />
-            </AuthGuard>
-          }
-        />
-
-        {/* Super Admin only */}
+        {/* Super Admin User Management route */}
         <Route
           path="/admin"
           element={
             <AuthGuard roles={['SUPER_ADMIN']}>
-              <ComingSoon
-                item={{
-                  label: 'Admin',
-                  icon: ShieldCheck,
-                }}
-              />
+              <EmployeeDirectory />
             </AuthGuard>
           }
         />
 
-        {/* Unknown routes */}
-        <Route
-          path="*"
-          element={<Navigate to="/" replace />}
-        />
+        {/* Fallback navigation for remaining items like /reports, /settings */}
+        {REMAINING_NAV_ITEMS.map((item) => (
+          <Route
+            key={item.to}
+            path={item.to}
+            element={
+              <AuthGuard>
+                <RoleAwareFeature item={item} />
+              </AuthGuard>
+            }
+          />
+        ))}
+
+        {/* Unknown routes fallback to root */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );
