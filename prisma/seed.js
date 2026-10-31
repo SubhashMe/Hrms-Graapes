@@ -12,12 +12,13 @@ dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 const prisma = new PrismaClient();
 
 async function main() {
-  const email = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
-  const password = process.env.SUPER_ADMIN_PASSWORD;
+  const isDevelopment = (process.env.NODE_ENV || 'development') === 'development';
+  const configuredEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+  const email = (isDevelopment && (!configuredEmail || configuredEmail === 'admin@example.com') ? 'superadmin@graapes.com' : configuredEmail || '').trim().toLowerCase();
+  const configuredPassword = process.env.SUPER_ADMIN_PASSWORD;
+  const password = (isDevelopment && (!configuredPassword || configuredPassword.startsWith('CHANGE_ME')) ? 'GraapesSuper@2026' : configuredPassword) || '';
   if (!email || !password || password.length < 12 || password.startsWith('CHANGE_ME')) {
-    throw new Error(
-      'Set SUPER_ADMIN_EMAIL and a real SUPER_ADMIN_PASSWORD (min 12 chars) in .env before seeding.',
-    );
+    throw new Error('Set SUPER_ADMIN_EMAIL and a real SUPER_ADMIN_PASSWORD (min 12 chars) in .env before seeding.');
   }
 
   // Organization settings (workplace name is editable later from Settings and persisted here).
@@ -49,6 +50,25 @@ async function main() {
     create: { email, passwordHash, role: 'SUPER_ADMIN', isActive: true },
   });
 
+  // Development-only convenience accounts for the first local login test.
+  // Never create these predictable accounts in production.
+  const demoAccounts = [
+    { email: 'superadmin@graapes.com', password: 'GraapesSuper@2026', role: 'SUPER_ADMIN' },
+    { email: 'hradmin@graapes.com', password: 'GraapesHR@2026', role: 'HR_ADMIN' },
+    { email: 'manager@graapes.com', password: 'GraapesMgr@2026', role: 'MANAGER' },
+    { email: 'employee@graapes.com', password: 'GraapesEmp@2026', role: 'EMPLOYEE' },
+  ];
+  if (isDevelopment) {
+    for (const account of demoAccounts) {
+      const passwordHash = await bcrypt.hash(account.password, 12);
+      await prisma.userAccount.upsert({
+        where: { email: account.email },
+        update: { passwordHash, role: account.role, isActive: true, failedLogins: 0, lockedUntil: null },
+        create: { email: account.email, passwordHash, role: account.role, isActive: true },
+      });
+    }
+    console.log('Development login accounts created: superadmin@graapes.com, hradmin@graapes.com, manager@graapes.com, employee@graapes.com');
+  }
   console.log(`Seed complete. Super Admin account: ${email}`);
 }
 

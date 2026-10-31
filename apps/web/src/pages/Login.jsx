@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { api, ApiError } from '../services/api.js';
+import { dashboardForRole } from '../auth/AuthGuard.jsx';
 import {
   ArrowRight,
   Eye,
@@ -9,6 +12,10 @@ import {
 import './Login.css';
 
 export default function Login() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [formData, setFormData] = useState({
@@ -23,11 +30,16 @@ export default function Login() {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // Connect your backend authentication API here.
-    alert('Login UI ready. Backend authentication is not connected yet.');
+    setError('');
+    setBusy(true);
+    try {
+      const { user } = await api('/auth/login', { method: 'POST', body: { email: formData.email, password: formData.password } });
+      navigate(location.state?.from || dashboardForRole(user.role), { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Login failed. Please try again.');
+    } finally { setBusy(false); }
   };
 
   return (
@@ -87,6 +99,7 @@ export default function Login() {
             </div>
 
             <form onSubmit={handleSubmit}>
+              {error && <p role="alert" className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
               <div className="form-group">
                 <label htmlFor="email">
                   Email address / Employee ID
@@ -165,9 +178,9 @@ export default function Login() {
                 </button>
               </div>
 
-              <button type="submit" className="sign-in-button">
-                <span>Sign in</span>
-                <ArrowRight size={19} />
+              <button type="submit" className="sign-in-button" disabled={busy}>
+                <span>{busy ? 'Signing in…' : 'Sign in'}</span>
+                {!busy && <ArrowRight size={19} />}
               </button>
             </form>
 

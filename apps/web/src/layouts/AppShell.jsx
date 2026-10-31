@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { api } from '../services/api.js';
 import {
   Menu,
   X,
@@ -12,7 +13,7 @@ import {
   LogOut,
 } from 'lucide-react';
 
-import { NAV_ITEMS } from '../app/navigation.js';
+import { NAV_ITEMS, ROLE_NAV } from '../app/navigation.js';
 import { useTheme } from '../app/ThemeProvider.jsx';
 
 const linkBase =
@@ -107,6 +108,8 @@ function GreetingHero() {
   const [name, setName] = useState('Admin');
 
   useEffect(() => {
+    const syncProfileName = (event) => { if (event?.detail?.fullName) setName(event.detail.fullName); };
+    window.addEventListener('hrms:profile-updated', syncProfileName);
     const tick = setInterval(() => setNow(new Date()), 1000);
 
     // Use the signed-in user's name if it is available.
@@ -145,7 +148,7 @@ function GreetingHero() {
       // Storage may be unavailable.
     }
 
-    return () => clearInterval(tick);
+    return () => { clearInterval(tick); window.removeEventListener('hrms:profile-updated', syncProfileName); };
   }, []);
 
   const hour = now.getHours();
@@ -204,6 +207,8 @@ function DesktopHeader({
   smallScreen,
   drawerOpen,
   onToggleMenu,
+  onProfile,
+  onNotifications,
 }) {
   return (
     <header className="app-header desktop-header sticky top-0 z-20 flex items-center gap-5 border-b border-border bg-surface/95 px-5 py-3 backdrop-blur xl:px-7">
@@ -241,7 +246,7 @@ function DesktopHeader({
       <div className="ml-auto flex items-center gap-1">
         <IconButton
           label="Notifications"
-          onClick={() => {}}
+          onClick={onNotifications}
         >
           <Bell size={19} />
         </IconButton>
@@ -250,7 +255,7 @@ function DesktopHeader({
 
         <IconButton
           label="Profile"
-          onClick={() => {}}
+          onClick={onProfile}
         >
           <UserRound size={19} />
         </IconButton>
@@ -276,10 +281,33 @@ function DesktopHeader({
 
 function SidebarContents({
   onNavigate,
+  onLogout,
   iconOnly = false,
   expanded = false,
   onToggleExpand,
 }) {
+  const location = useLocation();
+  const [role, setRole] = useState(null);
+  useEffect(() => {
+    let active = true;
+    api('/auth/me').then(({ user }) => { if (active) setRole(user?.role || null); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  const roleKeyByRole = {
+    SUPER_ADMIN: '/dashboard/super-admin',
+    HR_ADMIN: '/dashboard/hr-admin',
+    MANAGER: '/dashboard/manager',
+    EMPLOYEE: '/dashboard/employee',
+    INTERN: '/dashboard/employee',
+    EMPLOYEE_INTERN: '/dashboard/employee',
+    FINANCE: '/dashboard/super-admin',
+  };
+  const roleKey = roleKeyByRole[role] || Object.keys(ROLE_NAV).find((key) => location.pathname.startsWith(key)) || '/dashboard/super-admin';
+  const items = [...(ROLE_NAV[roleKey] || NAV_ITEMS)];
+  if (role === 'EMPLOYEE') {
+    const profileItem = { to: '/profile', label: 'My profile', icon: UserRound, built: true };
+    if (!items.some((item) => item.to === '/profile')) items.splice(1, 0, profileItem);
+  }
   return (
     <>
       <div
@@ -312,7 +340,7 @@ function SidebarContents({
           iconOnly ? 'items-stretch' : ''
         }`}
       >
-        {NAV_ITEMS.map((item) => (
+        {items.map((item) => (
           <SideLink
             key={item.to}
             item={item}
@@ -324,7 +352,7 @@ function SidebarContents({
 
       <button
         type="button"
-        onClick={onNavigate}
+        onClick={onLogout}
         className={`mt-3 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-danger-soft hover:text-danger ${
           iconOnly ? 'justify-center px-0' : ''
         }`}
@@ -339,7 +367,7 @@ function SidebarContents({
 }
 
 
-function Drawer({ open, onClose }) {
+function Drawer({ open, onClose, onLogout }) {
   useEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') {
@@ -373,7 +401,7 @@ function Drawer({ open, onClose }) {
         aria-modal="true"
         aria-label="Navigation menu"
       >
-        <SidebarContents onNavigate={onClose} />
+        <SidebarContents onNavigate={onClose} onLogout={onLogout} />
       </aside>
     </div>
   );
@@ -384,8 +412,23 @@ function DesktopShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const smallScreen = useSmallScreen();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try { await api('/auth/logout', { method: 'POST' }); } catch { /* Clear local UI even if the server is unavailable. */ }
+    try {
+      ['hrms.user', 'hrms.currentUser', 'currentUser', 'user'].forEach((key) => localStorage.removeItem(key));
+      sessionStorage.clear();
+    } catch { /* Storage may be unavailable. */ }
+    navigate('/login', { replace: true });
+    window.location.reload();
+  };
+
+  const openProfile = () => navigate('/profile');
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -434,6 +477,8 @@ function DesktopShell() {
         onToggleMenu={() => {
           setDrawerOpen((open) => !open);
         }}
+        onProfile={openProfile}
+        onNotifications={() => setNotificationsOpen((open) => !open)}
       />
 
       <div
@@ -450,6 +495,7 @@ function DesktopShell() {
           onClick={(event) => event.stopPropagation()}
         >
           <SidebarContents
+            onLogout={() => setLogoutConfirmOpen(true)}
             iconOnly={!sidebarExpanded}
             expanded={sidebarExpanded}
             onToggleExpand={() => {
@@ -469,7 +515,37 @@ function DesktopShell() {
       <Drawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        onLogout={() => setLogoutConfirmOpen(true)}
       />
+
+      {notificationsOpen && (
+        <div className="fixed inset-0 z-40" role="presentation" onClick={() => setNotificationsOpen(false)}>
+          <section role="dialog" aria-modal="true" aria-label="Notifications"
+            className="absolute right-4 top-16 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-border bg-surface p-5 shadow-xl"
+            onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-bold">Notifications</h2>
+              <button type="button" onClick={() => setNotificationsOpen(false)} className="rounded-lg px-2 py-1 text-sm text-muted hover:bg-surface-2">Close</button>
+            </div>
+            <p className="mt-3 rounded-xl bg-surface-2 p-4 text-sm text-muted">No notifications to show right now.</p>
+          </section>
+        </div>
+      )}
+
+      {logoutConfirmOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setLogoutConfirmOpen(false); }}>
+          <section role="alertdialog" aria-modal="true" aria-labelledby="logout-confirm-title"
+            className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl">
+            <h2 id="logout-confirm-title" className="text-lg font-bold">Confirm logout</h2>
+            <p className="mt-2 text-sm text-muted">Are you sure you want to log out? You will need to sign in again to access your account.</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setLogoutConfirmOpen(false)} className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold hover:bg-surface-2">Cancel</button>
+              <button type="button" onClick={handleLogout} className="rounded-xl bg-danger px-4 py-2.5 text-sm font-semibold text-white">Yes, Log Out</button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

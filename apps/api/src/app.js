@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { authRouter } from './modules/auth/auth.routes.js';
 
 /**
  * Builds the Express app. Kept separate from server.js so tests can import it
@@ -23,7 +24,7 @@ export function createApp({ checkDb }) {
   if (env.NODE_ENV !== 'test') app.use(morgan('tiny'));
 
   app.use('/api/health', healthRouter({ checkDb }));
-  // Next modules (Day 2+): /api/auth, /api/employees, /api/attendance, /api/leaves ...
+  app.use('/api/auth', authRouter());
 
   app.use(notFoundHandler);
   app.use(errorHandler);

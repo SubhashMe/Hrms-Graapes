@@ -54,3 +54,8 @@ npm test
 - API/database features require a valid `.env` and a reachable configured database.
 - Do not run `npm run db:reset` on a real database; it can destroy data.
 - Continue implementation against the BRD and docs in `docs/`.
+
+
+## Local role login setup
+
+See [LOGIN-QUICKSTART.md](LOGIN-QUICKSTART.md) for the one-time database seed command and development-only login credentials. Do not use those predictable credentials in production.
