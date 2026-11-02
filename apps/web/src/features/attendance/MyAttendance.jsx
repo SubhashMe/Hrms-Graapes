@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, ChevronLeft, ChevronRight, Clock3,
   CheckCircle2, LogIn, LogOut, CalendarCheck,
-  AlertCircle, RefreshCw
+  AlertCircle, RefreshCw, Plus, X, Clock, Check, FileEdit, MessageSquare
 } from 'lucide-react';
 import './MyAttendance.css';
+import { api } from '../../services/api.js';
+import { useAuth } from '../../app/AuthContext.jsx';
 
 const API = '/api/attendance';
 
@@ -62,6 +64,7 @@ function normalizeRecord(record) {
 }
 
 export default function MyAttendance() {
+  const { user } = useAuth();
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -69,16 +72,39 @@ export default function MyAttendance() {
 
   const [records, setRecords] = useState([]);
   const [todayRecord, setTodayRecord] = useState(null);
+  const [corrections, setCorrections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [filter, setFilter] = useState('All');
+  const [activeHistoryTab, setActiveHistoryTab] = useState('history'); // 'history' | 'corrections'
+
+  // Correction Modal & State
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [correctionError, setCorrectionError] = useState('');
+  const [correctionForm, setCorrectionForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    requestedIn: '09:30',
+    requestedOut: '18:30',
+    reason: '',
+  });
+
+  // Decision Modal
+  const [decisionModal, setDecisionModal] = useState({
+    open: false,
+    correctionId: null,
+    action: 'APPROVED',
+    comment: '',
+  });
 
   const today = formatDate(new Date());
   const monthName = month.toLocaleDateString('en-IN', {
     month: 'long',
     year: 'numeric',
   });
+
+  const isManagerOrAdmin = ['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER'].includes(user?.role);
 
   async function loadAttendance() {
     setLoading(true);
@@ -117,8 +143,18 @@ export default function MyAttendance() {
     }
   }
 
+  async function loadCorrections() {
+    try {
+      const res = await api('/attendance/corrections');
+      setCorrections(res.corrections || []);
+    } catch {
+      setCorrections([]);
+    }
+  }
+
   useEffect(() => {
     loadAttendance();
+    loadCorrections();
     // Reload when the displayed month changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
@@ -159,6 +195,7 @@ export default function MyAttendance() {
   async function punch(action) {
     setActionLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       const response = await fetch(`${API}/${action}`, {
@@ -173,11 +210,67 @@ export default function MyAttendance() {
         throw new Error(body.message || `Unable to ${action.replace('-', ' ')}.`);
       }
 
+      setSuccess(`Successfully ${action === 'check-in' ? 'checked in' : 'checked out'}.`);
       await loadAttendance();
     } catch (err) {
       setError(
         `${err.message} Check that the backend supports POST ${API}/${action}.`
       );
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleRequestCorrection(e) {
+    e.preventDefault();
+    setActionLoading(true);
+    setCorrectionError('');
+    setError('');
+
+    try {
+      await api('/attendance/corrections', {
+        method: 'POST',
+        body: {
+          date: correctionForm.date,
+          requestedIn: correctionForm.requestedIn,
+          requestedOut: correctionForm.requestedOut,
+          reason: correctionForm.reason.trim(),
+        },
+      });
+
+      setShowCorrectionModal(false);
+      setSuccess('Attendance correction request submitted for approval.');
+      setCorrectionForm({
+        date: new Date().toISOString().slice(0, 10),
+        requestedIn: '09:30',
+        requestedOut: '18:30',
+        reason: '',
+      });
+      await Promise.all([loadAttendance(), loadCorrections()]);
+      setActiveHistoryTab('corrections');
+    } catch (err) {
+      setCorrectionError(err.message || 'Unable to submit correction request.');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function submitDecision(id, status, decisionComment) {
+    setActionLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      await api(`/attendance/corrections/${id}/decision`, {
+        method: 'PATCH',
+        body: { status, decisionComment },
+      });
+
+      setDecisionModal({ open: false, correctionId: null, action: 'APPROVED', comment: '' });
+      setSuccess(`Correction request ${status.toLowerCase()} successfully.`);
+      await Promise.all([loadAttendance(), loadCorrections()]);
+    } catch (err) {
+      setError(err.message || 'Failed to update correction decision.');
     } finally {
       setActionLoading(false);
     }
@@ -210,6 +303,8 @@ export default function MyAttendance() {
   const canCheckIn = !checkedIn;
   const canCheckOut = checkedIn && !checkedOut;
 
+  const pendingCorrectionsCount = corrections.filter((c) => c.status === 'PENDING').length;
+
   function moveMonth(offset) {
     setMonth((current) => new Date(
       current.getFullYear(), current.getMonth() + offset, 1
@@ -221,7 +316,7 @@ export default function MyAttendance() {
       <header className="attendance-heading">
         <div>
           <h1><CalendarCheck size={25} /> My Attendance</h1>
-          <p>Track your attendance and working hours</p>
+          <p>Track your attendance, check-in records and correction requests</p>
         </div>
 
         <div className="month-picker">
@@ -240,8 +335,20 @@ export default function MyAttendance() {
         <div className="attendance-error" role="alert">
           <AlertCircle size={19} />
           <span>{error}</span>
-          <button onClick={loadAttendance}>
+          <button onClick={() => { loadAttendance(); loadCorrections(); }}>
             <RefreshCw size={16} /> Retry
+          </button>
+        </div>
+      )}
+
+      {success && (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/10 p-4 text-xs font-medium text-green-700 dark:text-green-300">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={16} />
+            <span>{success}</span>
+          </div>
+          <button type="button" onClick={() => setSuccess('')} className="p-1 hover:opacity-75">
+            ✕
           </button>
         </div>
       )}
@@ -343,7 +450,13 @@ export default function MyAttendance() {
             <LogOut size={17} /> Check Out
           </button>
 
-          <small>Check-in/out requires a working, authenticated backend.</small>
+          <button
+            type="button"
+            onClick={() => setShowCorrectionModal(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-surface-2"
+          >
+            <FileEdit size={14} /> Request Correction
+          </button>
         </div>
       </section>
 
@@ -404,65 +517,337 @@ export default function MyAttendance() {
 
         <div className="attendance-history panel">
           <div className="history-heading">
-            <h2>Attendance History</h2>
-            <select value={filter} onChange={(event) => setFilter(event.target.value)}>
-              {['All', 'Present', 'Absent', 'Late', 'Holiday', 'Leave'].map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveHistoryTab('history')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  activeHistoryTab === 'history'
+                    ? 'bg-accent text-accent-contrast shadow-sm'
+                    : 'bg-surface-2 text-muted hover:text-foreground'
+                }`}
+              >
+                Attendance Log
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveHistoryTab('corrections')}
+                className={`relative rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  activeHistoryTab === 'corrections'
+                    ? 'bg-accent text-accent-contrast shadow-sm'
+                    : 'bg-surface-2 text-muted hover:text-foreground'
+                }`}
+              >
+                Correction Requests
+                {pendingCorrectionsCount > 0 && (
+                  <span className="ml-1.5 rounded-full bg-danger px-1.5 py-0.2 text-[10px] font-bold text-white">
+                    {pendingCorrectionsCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {activeHistoryTab === 'history' && (
+                <select value={filter} onChange={(event) => setFilter(event.target.value)}>
+                  {['All', 'Present', 'Absent', 'Late', 'Holiday', 'Leave'].map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCorrectionModal(true)}
+                className="inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-accent-contrast shadow-sm transition hover:opacity-90"
+              >
+                <Plus size={13} /> Request
+              </button>
+            </div>
           </div>
 
-          <div className="attendance-table-wrap">
-            <table className="attendance-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Check In</th>
-                  <th>Check Out</th>
-                  <th>Working Hours</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!loading && filteredRecords.length === 0 && (
+          {activeHistoryTab === 'history' ? (
+            <div className="attendance-table-wrap">
+              <table className="attendance-table">
+                <thead>
                   <tr>
-                    <td colSpan="5" className="attendance-empty">
-                      No attendance records found for this month.
-                    </td>
+                    <th>Date</th>
+                    <th>Check In</th>
+                    <th>Check Out</th>
+                    <th>Working Hours</th>
+                    <th>Status</th>
                   </tr>
-                )}
+                </thead>
+                <tbody>
+                  {!loading && filteredRecords.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="attendance-empty">
+                        No attendance records found for this month.
+                      </td>
+                    </tr>
+                  )}
 
-                {filteredRecords.map((record) => (
-                  <tr key={record.id ?? record.date}>
-                    <td>{record.date || '—'}</td>
-                    <td>{formatTime(record.checkIn)}</td>
-                    <td>{formatTime(record.checkOut)}</td>
-                    <td>{durationLabel(
-                      Number(record.workingMinutes) ||
-                      minutesBetween(record.checkIn, record.checkOut)
-                    )}</td>
-                    <td>
-                      <span className={`status-badge ${statusLabel(record).toLowerCase().replace(/\s+/g, '-')}`}>
-                        {statusLabel(record)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                  {filteredRecords.map((record) => (
+                    <tr key={record.id ?? record.date}>
+                      <td>{record.date || '—'}</td>
+                      <td>{formatTime(record.checkIn)}</td>
+                      <td>{formatTime(record.checkOut)}</td>
+                      <td>{durationLabel(
+                        Number(record.workingMinutes) ||
+                        minutesBetween(record.checkIn, record.checkOut)
+                      )}</td>
+                      <td>
+                        <span className={`status-badge ${statusLabel(record).toLowerCase().replace(/\s+/g, '-')}`}>
+                          {statusLabel(record)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
 
-                {loading && (
+                  {loading && (
+                    <tr>
+                      <td colSpan="5" className="attendance-empty">Loading attendance…</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="attendance-table-wrap">
+              <table className="attendance-table">
+                <thead>
                   <tr>
-                    <td colSpan="5" className="attendance-empty">Loading attendance…</td>
+                    <th>Date</th>
+                    {isManagerOrAdmin && <th>Employee</th>}
+                    <th>Original</th>
+                    <th>Requested</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {corrections.map((c) => (
+                    <tr key={c.id}>
+                      <td className="font-medium">{c.date}</td>
+                      {isManagerOrAdmin && (
+                        <td>
+                          <div className="font-medium text-foreground">{c.employeeName || '—'}</div>
+                          <div className="text-[11px] text-muted">{c.employeeCode}</div>
+                        </td>
+                      )}
+                      <td className="text-xs text-muted">
+                        {c.originalIn ? formatTime(c.originalIn) : 'Missed'} - {c.originalOut ? formatTime(c.originalOut) : 'Missed'}
+                      </td>
+                      <td className="text-xs font-medium text-foreground">
+                        {c.requestedIn ? formatTime(c.requestedIn) : '—'} - {c.requestedOut ? formatTime(c.requestedOut) : '—'}
+                      </td>
+                      <td className="max-w-[200px] truncate text-xs text-muted" title={c.reason}>
+                        {c.reason}
+                      </td>
+                      <td>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            c.status === 'APPROVED'
+                              ? 'bg-green-500/10 text-green-700 dark:text-green-400'
+                              : c.status === 'REJECTED'
+                              ? 'bg-danger/10 text-danger'
+                              : 'bg-amber-500/10 text-amber-600'
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                      </td>
+                      <td>
+                        {c.canApprove && c.status === 'PENDING' ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setDecisionModal({ open: true, correctionId: c.id, action: 'APPROVED', comment: '' })}
+                              className="rounded-md bg-green-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-green-700"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDecisionModal({ open: true, correctionId: c.id, action: 'REJECTED', comment: '' })}
+                              className="rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] font-semibold text-danger transition hover:bg-danger/20"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-muted">
+                            {c.decisionComment || '—'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
 
-          <button className="refresh-attendance" onClick={loadAttendance}>
+                  {corrections.length === 0 && (
+                    <tr>
+                      <td colSpan={isManagerOrAdmin ? 7 : 6} className="attendance-empty">
+                        No attendance correction requests found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <button className="refresh-attendance" onClick={() => { loadAttendance(); loadCorrections(); }}>
             <RefreshCw size={15} /> Refresh records
           </button>
         </div>
       </section>
+
+      {/* Request Correction Modal */}
+      {showCorrectionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border pb-4">
+              <h3 className="text-base font-bold text-foreground">Request Attendance Correction</h3>
+              <button
+                type="button"
+                onClick={() => { setShowCorrectionModal(false); setCorrectionError(''); }}
+                className="rounded-lg p-1 text-muted transition hover:bg-surface-2 hover:text-foreground"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {correctionError && (
+              <div className="mt-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
+                {correctionError}
+              </div>
+            )}
+
+            <form onSubmit={handleRequestCorrection} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted">
+                  Correction Date
+                </label>
+                <input
+                  type="date"
+                  required
+                  max={today}
+                  value={correctionForm.date}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, date: e.target.value })}
+                  className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground outline-none focus:border-accent"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted">
+                    Requested In Time
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={correctionForm.requestedIn}
+                    onChange={(e) => setCorrectionForm({ ...correctionForm, requestedIn: e.target.value })}
+                    className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted">
+                    Requested Out Time
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={correctionForm.requestedOut}
+                    onChange={(e) => setCorrectionForm({ ...correctionForm, requestedOut: e.target.value })}
+                    className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted">
+                  Reason for Correction (Mandatory)
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Explain why correction is needed (e.g. system issue, client visit, forgot punch)..."
+                  value={correctionForm.reason}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, reason: e.target.value })}
+                  className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3.5 py-2 text-sm text-foreground outline-none focus:border-accent"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowCorrectionModal(false); setCorrectionError(''); }}
+                  className="rounded-xl border border-border px-4 py-2 text-xs font-semibold text-muted hover:bg-surface-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-accent-contrast shadow-sm transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {actionLoading ? 'Submitting…' : 'Submit Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Decision Note Modal */}
+      {decisionModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-6 shadow-2xl">
+            <h3 className="text-base font-bold text-foreground">
+              {decisionModal.action === 'APPROVED' ? 'Approve Correction' : 'Reject Correction'}
+            </h3>
+            <p className="mt-1 text-xs text-muted">
+              {decisionModal.action === 'APPROVED'
+                ? 'On approval, the employee attendance record and working hours will be automatically recalculated.'
+                : 'Enter a remark or reason for rejecting this correction request.'}
+            </p>
+
+            <div className="mt-4">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted">
+                Decision Remark (Optional)
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Add reviewer notes..."
+                value={decisionModal.comment}
+                onChange={(e) => setDecisionModal({ ...decisionModal, comment: e.target.value })}
+                className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs text-foreground outline-none focus:border-accent"
+              />
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDecisionModal({ open: false, correctionId: null, action: 'APPROVED', comment: '' })}
+                className="rounded-xl border border-border px-4 py-2 text-xs font-semibold text-muted hover:bg-surface-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => submitDecision(decisionModal.correctionId, decisionModal.action, decisionModal.comment)}
+                className={`rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-sm transition ${
+                  decisionModal.action === 'APPROVED' ? 'bg-green-600 hover:bg-green-700' : 'bg-danger hover:opacity-90'
+                }`}
+              >
+                {actionLoading ? 'Saving…' : `Confirm ${decisionModal.action === 'APPROVED' ? 'Approval' : 'Rejection'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

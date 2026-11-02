@@ -209,6 +209,7 @@ function DesktopHeader({
   onToggleMenu,
   onProfile,
   onNotifications,
+  unreadCount = 0,
 }) {
   return (
     <header className="app-header desktop-header sticky top-0 z-20 flex items-center gap-5 border-b border-border bg-surface/95 px-5 py-3 backdrop-blur xl:px-7">
@@ -244,12 +245,17 @@ function DesktopHeader({
       </nav>
 
       <div className="ml-auto flex items-center gap-1">
-        <IconButton
-          label="Notifications"
-          onClick={onNotifications}
-        >
-          <Bell size={19} />
-        </IconButton>
+        <div className="relative">
+          <IconButton
+            label="Notifications"
+            onClick={onNotifications}
+          >
+            <Bell size={19} />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 flex h-2 w-2 rounded-full bg-accent ring-2 ring-surface" />
+            )}
+          </IconButton>
+        </div>
 
         <ThemeToggle />
 
@@ -414,9 +420,33 @@ function DesktopShell() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const location = useLocation();
   const navigate = useNavigate();
+
+  const loadNotifications = async () => {
+    try {
+      const res = await api('/notifications');
+      setNotifications(res.notifications || []);
+      setUnreadCount(res.unreadCount || 0);
+    } catch {
+      // silently fallback
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, [location.pathname, notificationsOpen]);
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api('/notifications/read-all', { method: 'POST' });
+      setUnreadCount(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, readAt: new Date() })));
+    } catch {}
+  };
 
   const handleLogout = async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* Clear local UI even if the server is unavailable. */ }
@@ -474,6 +504,7 @@ function DesktopShell() {
       <DesktopHeader
         smallScreen={smallScreen}
         drawerOpen={drawerOpen}
+        unreadCount={unreadCount}
         onToggleMenu={() => {
           setDrawerOpen((open) => !open);
         }}
@@ -521,13 +552,56 @@ function DesktopShell() {
       {notificationsOpen && (
         <div className="fixed inset-0 z-40" role="presentation" onClick={() => setNotificationsOpen(false)}>
           <section role="dialog" aria-modal="true" aria-label="Notifications"
-            className="absolute right-4 top-16 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-border bg-surface p-5 shadow-xl"
+            className="absolute right-4 top-16 w-[min(26rem,calc(100vw-2rem))] rounded-2xl border border-border bg-surface p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-bold">Notifications</h2>
-              <button type="button" onClick={() => setNotificationsOpen(false)} className="rounded-lg px-2 py-1 text-sm text-muted hover:bg-surface-2">Close</button>
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold">Notifications</h2>
+                {unreadCount > 0 && (
+                  <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-bold text-accent">
+                    {unreadCount} new
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllRead}
+                    className="text-xs font-semibold text-accent hover:underline"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button type="button" onClick={() => setNotificationsOpen(false)} className="rounded-lg p-1 text-sm text-muted hover:bg-surface-2">✕</button>
+              </div>
             </div>
-            <p className="mt-3 rounded-xl bg-surface-2 p-4 text-sm text-muted">No notifications to show right now.</p>
+
+            <div className="mt-3 max-h-80 overflow-y-auto space-y-2">
+              {notifications.map((n) => (
+                <div
+                  key={n.id}
+                  onClick={() => {
+                    if (n.link) {
+                      navigate(n.link);
+                      setNotificationsOpen(false);
+                    }
+                  }}
+                  className={`rounded-xl border border-border p-3 transition ${
+                    n.link ? 'cursor-pointer hover:border-accent/40 hover:bg-surface-2' : ''
+                  } ${!n.readAt ? 'bg-accent-soft/20 border-accent/20' : 'bg-surface'}`}
+                >
+                  <div className="text-xs font-bold text-text">{n.title}</div>
+                  <div className="mt-1 text-xs text-muted leading-relaxed">{n.body}</div>
+                  <div className="mt-2 text-[10px] text-muted font-medium">
+                    {new Date(n.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              ))}
+              {notifications.length === 0 && (
+                <p className="rounded-xl bg-surface-2 p-4 text-center text-sm text-muted">No notifications to show right now.</p>
+              )}
+            </div>
           </section>
         </div>
       )}

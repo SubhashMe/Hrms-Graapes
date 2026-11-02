@@ -21,6 +21,8 @@ import HolidaysPage from '../features/holidays/HolidaysPage.jsx';
 import AnnouncementsPage from '../features/announcements/AnnouncementsPage.jsx';
 import DocumentsPage from '../features/documents/DocumentsPage.jsx';
 import AuditLogsPage from '../features/audit/AuditLogsPage.jsx';
+import ReportsPage from '../features/reports/ReportsPage.jsx';
+import SettingsPage from '../features/settings/SettingsPage.jsx';
 
 import { ROLE_NAV } from '../app/navigation.js';
 import { ShieldCheck } from 'lucide-react';
@@ -39,12 +41,15 @@ const DEDICATED_PATHS = [
   '/announcements',
   '/documents',
   '/audit',
+  '/reports',
+  '/settings',
   '/profile',
   '/status',
   '/dashboard/super-admin',
   '/dashboard/hr-admin',
   '/dashboard/manager',
   '/dashboard/employee',
+  '/admin',
 ];
 
 const REMAINING_NAV_ITEMS = [
@@ -152,6 +157,24 @@ export default function AppRoutes() {
           element={
             <AuthGuard roles={['SUPER_ADMIN', 'HR_ADMIN']}>
               <AuditLogsPage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/reports"
+          element={
+            <AuthGuard roles={['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER']}>
+              <ReportsPage />
+            </AuthGuard>
+          }
+        />
+
+        <Route
+          path="/settings"
+          element={
+            <AuthGuard>
+              <SettingsPage />
             </AuthGuard>
           }
         />

@@ -16,6 +16,9 @@ import { holidaysRouter } from './modules/holidays/holidays.routes.js';
 import { announcementsRouter } from './modules/announcements/announcements.routes.js';
 import { documentsRouter } from './modules/documents/documents.routes.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
+import { reportsRouter } from './modules/reports/reports.routes.js';
+import { settingsRouter } from './modules/settings/settings.routes.js';
+import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 
 /**
  * Builds the Express app. Kept separate from server.js so tests can import it
@@ -45,6 +48,9 @@ export function createApp({ checkDb }) {
   app.use('/api/announcements', announcementsRouter());
   app.use('/api/documents', documentsRouter());
   app.use('/api/audit', auditRouter());
+  app.use('/api/reports', reportsRouter());
+  app.use('/api/settings', settingsRouter());
+  app.use('/api/notifications', notificationsRouter());
 
   app.use(notFoundHandler);
   app.use(errorHandler);
